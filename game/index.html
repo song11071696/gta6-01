@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solmar Bay — Open World Crime Game</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1420; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; display: none; }
+  .panel { background: rgba(0,0,0,0.55); border-radius: 8px; padding: 8px 12px; }
+  #top-right { position: absolute; top: 14px; right: 16px; text-align: right; }
+  #money { font-size: 28px; font-weight: 800; color: #7dff9a; text-shadow: 0 2px 4px #000; }
+  #stars { font-size: 26px; letter-spacing: 4px; text-shadow: 0 2px 4px #000; }
+  #clock { font-size: 15px; color: #ffe9a8; text-shadow: 0 1px 3px #000; }
+  #bottom-left { position: absolute; left: 16px; bottom: 16px; width: 260px; }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 13px; font-weight: 700; }
+  .bar { flex: 1; height: 12px; background: rgba(0,0,0,0.6); border-radius: 6px; overflow: hidden; }
+  .bar > div { height: 100%; }
+  #health-fill { background: #37d67a; width: 100%; }
+  #armor-fill { background: #4aa8ff; width: 50%; }
+  #objective { position: absolute; top: 14px; left: 16px; max-width: 520px; font-size: 16px; font-weight: 600; line-height: 1.35; }
+  #objective b { color: #ffd23e; }
+  #speed { position: absolute; right: 16px; bottom: 16px; font-size: 30px; font-weight: 800; text-shadow: 0 2px 4px #000; }
+  #ammo { position: absolute; right: 16px; bottom: 56px; font-size: 15px; font-weight: 700; text-shadow: 0 1px 3px #000; }
+  #minimap { position: absolute; left: 16px; bottom: 110px; width: 168px; height: 168px; border: 3px solid rgba(255,255,255,0.75); border-radius: 50%; background: #20242e; }
+  #toast { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); font-size: 20px; font-weight: 700; color: #ffd23e; text-shadow: 0 2px 4px #000; opacity: 0; transition: opacity 0.3s; white-space: nowrap; }
+  #controls { position: absolute; left: 16px; bottom: 16px; display: none; }
+  .screen { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #fff; background: linear-gradient(180deg, rgba(20,10,40,0.55), rgba(255,120,60,0.35)); z-index: 5; }
+  .screen h1 { font-size: 64px; margin: 0; letter-spacing: 2px; text-shadow: 0 4px 0 #c23a6a, 0 8px 24px #000; }
+  .screen h1 span { color: #ffd23e; }
+  .screen p { font-size: 18px; max-width: 640px; line-height: 1.5; text-shadow: 0 2px 4px #000; }
+  .screen .keys { font-size: 15px; color: #ffe9a8; }
+  .screen .prompt { font-size: 22px; font-weight: 700; color: #ffd23e; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: 0.55; } }
+  #busted-screen h1, #wasted-screen h1 { font-size: 72px; }
+  #busted-screen { background: rgba(20,40,120,0.6); }
+  #wasted-screen { background: rgba(120,10,10,0.6); }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Solmar Bay: an open-world crime game. Drive, steal cars, run jobs for Marisol Vega, and dodge the Solmar Bay police."></canvas>
+<p id="status" role="status" aria-live="polite"></p>
+<div id="hud">
+  <div id="objective" class="panel"><b>SOLMAR BAY</b> — <span id="objective-text">Press Q for a job</span></div>
+  <div id="top-right">
+    <div id="money">$250</div>
+    <div id="stars">☆☆☆☆☆</div>
+    <div id="clock">17:20:00</div>
+  </div>
+  <canvas id="minimap" width="168" height="168"></canvas>
+  <div id="bottom-left">
+    <div class="bar-row">HEALTH <div class="bar"><div id="health-fill"></div></div></div>
+    <div class="bar-row">ARMOR <div class="bar"><div id="armor-fill"></div></div></div>
+  </div>
+  <div id="speed"></div>
+  <div id="ammo">Ammo 60</div>
+  <div id="toast"></div>
+</div>
+<div id="title-screen" class="screen" style="display:flex">
+  <h1>SOLMAR <span>BAY</span></h1>
+  <p>Sunset city. Fast cars. One fixer who always has a job.<br>
+  Steal a car, run jobs for <b>Marisol Vega</b>, outrun the Solmar Bay police — and don't get caught.</p>
+  <p class="keys">WASD move / drive &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; Mouse drag camera &nbsp;·&nbsp; E enter car &nbsp;·&nbsp; Click shoot &nbsp;·&nbsp; F punch &nbsp;·&nbsp; Q start job &nbsp;·&nbsp; P pause &nbsp;·&nbsp; M mute</p>
+  <p id="title-best">Best fortune: $0</p>
+  <p class="prompt">Press SPACE or click to start</p>
+</div>
+<div id="pause-screen" class="screen">
+  <h1>PAUSED</h1>
+  <p>The city waits for you.</p>
+  <p class="prompt">Press P to resume</p>
+</div>
+<div id="busted-screen" class="screen">
+  <h1>BUSTED</h1>
+  <p>The Solmar Bay police finally caught up with you.</p>
+  <p class="prompt">Press SPACE to try again</p>
+</div>
+<div id="wasted-screen" class="screen">
+  <h1>WASTED</h1>
+  <p>Solmar Bay chewed you up. The sunset doesn't care.</p>
+  <p class="prompt">Press SPACE to try again</p>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
