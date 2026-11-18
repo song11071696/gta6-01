@@ -1,19 +1,47 @@
-# gta6-01
+# Solmar Bay
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/song11071696/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/song11071696/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/c/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/song11071696/gta6-01/rank.svg)](https://make.fun/c/gta6-01)
+[![reward](https://make.fun/badge/gta6-01/song11071696/gta6-01/reward.svg)](https://make.fun/c/gta6-01)
 
-**Solmar Bay** — a 3D open-world crime game in the spirit of GTA 6, playable in a desktop browser from static files with zero network requests. A procedural sunset coastal city you explore on foot and by car: stealable cars (sedan, taxi, truck, sports, police), traffic AI and 30 pedestrians, a 0–5 star wanted level with police cruisers that ram and chase and foot cops that punch, 6 story missions with a fixer named Marisol Vega (tutorial steal-and-drive, pickup-and-deliver, losing a 2-star wanted level, a timed getaway, a timed delivery, and a final marina heist with a 3-star escape), pistol combat with tracers, health/armor/ammo, side cash pickups, and a full HUD (health/armor bars, money, stars, clock, speed, ammo, objective) plus a circular 2D minimap. Progress saves to localStorage. Built with three.js 0.160.0 (vendored, no network), WebAudio synth sound, and system fonts only. All city, characters, vehicles, names, story, art, and sound are original — nothing from Rockstar Games.
+An original 2D top-down open-world crime game, built for the make.fun gta6-01 competition. No libraries, no network requests — plain canvas, plain JavaScript, every sound synthesised live with WebAudio.
 
-## Run it
+## The game
 
-```sh
-npx serve game
-```
+Mara Voss came home to Solmar Bay broke and in debt. The bay owes her a living, and she is going to take it back — one job at a time.
 
-Then open http://localhost:3000 in desktop Chrome. Or open `game/index.html` directly — no build step, no server required for the game itself.
+Explore a sun-soaked coastal city on foot and by car: a road grid full of traffic, pedestrians on the sidewalks, parks, and a beach with open water on the east edge. Steal cars, outrun the patrol, and work through a five-job story arc — from a first stolen car to a bank heist — while the wanted level rises and falls with what you do in public.
 
----
+- **Open world**: a seeded city (same seed, same streets) with districts, a harbor, a bank, a safehouse and a beachfront
+- **Driving**: arcade car physics, traffic that follows the roads, parked cars to steal
+- **Wanted level 0–5**: patrol cars and officers on foot chase you; get caught and you are busted
+- **Combat**: pistol aimed with the mouse, fists up close, bullets, wrecks and consequences
+- **Missions**: five story jobs with objectives, markers, cash rewards and a finale
+- **HUD**: health, cash, wanted stars, mission tracker, district name and a live minimap
+- **Save / load**: progress saves to localStorage after every job; continue from the title screen
+- **Sound**: engine hum, sirens, gunshots, crashes and jingles — all synthesised, no audio files
 
-<sub>Entered on [make.fun](https://make.fun/?ref=p2453ks7&utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
+## Controls
+
+| Key | Action |
+| --- | --- |
+| WASD / arrows | Walk, run (Shift), or drive |
+| E | Enter / steal a car, exit a car |
+| Mouse aim + Click | Shoot (on foot) |
+| F | Punch |
+| P / Esc | Pause |
+| M | Mute |
+| Enter | Start / restart |
+| L | Continue a saved game (title screen) |
+
+## Play it
+
+Serve `game/` with any static server and open `index.html` in desktop Chrome, for example `node serve.ts` then http://localhost:8080. The game runs fully offline.
+
+## Screenshots
+
+The four shots in `screenshots/` are staged with `?shot=cover|street|chase|mission&seed=7` — see `shots.json`.
+
+## License
+
+MIT — see `LICENSE`.
