@@ -1,109 +1,242 @@
-// HUD: DOM bars and readouts (health, armor, money, wanted stars, objective,
-// speed, ammo, clock) plus a 2D canvas minimap showing roads, the beach, the
-// player arrow, police dots and the mission waypoint. Also the toast line and
-// the title / pause / busted / wasted overlays.
-import { CITY } from './config.js';
+// Solmar Bay — everything drawn in screen space: health and cash, wanted
+// stars, the mission tracker, the minimap, messages, and the title, pause,
+// busted and story-complete screens.
+import { CFG, districtAt } from './config.js';
+import { MISSIONS, missionText } from './missions.js';
 
-export function createHud(g) {
-  const el = (id) => document.getElementById(id);
-  const hud = {
-    healthFill: el('health-fill'), armorFill: el('armor-fill'),
-    money: el('money'), stars: el('stars'), objective: el('objective-text'),
-    speed: el('speed'), ammo: el('ammo'), clock: el('clock'),
-    toast: el('toast'), minimap: el('minimap'),
-    title: el('title-screen'), pause: el('pause-screen'),
-    busted: el('busted-screen'), wasted: el('wasted-screen'),
-    titleBest: el('title-best'),
-  };
-  hud.mapCtx = hud.minimap.getContext('2d');
-  let toastTimer = 0;
-  return {
-    ...hud,
-    showToast(text) {
-      hud.toast.textContent = text;
-      hud.toast.style.opacity = '1';
-      toastTimer = 3;
-    },
-    tickToast(dt) {
-      if (toastTimer > 0) {
-        toastTimer -= dt;
-        if (toastTimer <= 0) hud.toast.style.opacity = '0';
-      }
-    },
-    update(g2) {
-      const p = g2.player;
-      hud.healthFill.style.width = `${Math.max(0, p.health)}%`;
-      hud.armorFill.style.width = `${Math.max(0, p.armor)}%`;
-      hud.money.textContent = `$${g2.money.toLocaleString('en-US')}`;
-      hud.stars.textContent = '★'.repeat(g2.wanted) + '☆'.repeat(5 - g2.wanted);
-      hud.stars.style.color = g2.wanted > 0 ? '#ffd23e' : '#888888';
-      hud.objective.textContent = g2.missionObjective();
-      const kmh = p.inCar && p.car ? Math.round(Math.abs(p.car.speed) * 3.6) : Math.round(p.speed * 3.6);
-      hud.speed.textContent = p.inCar ? `${kmh} km/h` : '';
-      hud.ammo.textContent = `Ammo ${g2.combat.ammo}`;
-      const mins = Math.floor(g2.elapsed / 60);
-      const secs = Math.floor(g2.elapsed % 60);
-      hud.clock.textContent = `17:${String(20 + mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-      drawMinimap(g2, hud.mapCtx);
-    },
-    showScreen(name) {
-      hud.title.style.display = name === 'title' ? 'flex' : 'none';
-      hud.pause.style.display = name === 'paused' ? 'flex' : 'none';
-      hud.busted.style.display = name === 'busted' ? 'flex' : 'none';
-      hud.wasted.style.display = name === 'wasted' ? 'flex' : 'none';
-      const inGame = name === 'play';
-      document.getElementById('hud').style.display = inGame ? 'block' : 'none';
-    },
-  };
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }
 
-function drawMinimap(g, ctx) {
-  const S = 168;
-  const half = CITY.size / 2;
-  const toMap = (x, z) => [(x + half) / CITY.size * S, (z + half) / CITY.size * S];
-  ctx.clearRect(0, 0, S, S);
-  ctx.fillStyle = '#20242e';
-  ctx.fillRect(0, 0, S, S);
-  // Beach + sea.
-  const [bx] = toMap(CITY.beachAt, 0);
-  ctx.fillStyle = '#e8c98a';
-  ctx.fillRect(bx, 0, S - bx, S);
-  ctx.fillStyle = '#1e6f8e';
-  ctx.fillRect(toMap(CITY.seaAt, 0)[0], 0, S, S);
-  // Roads.
-  ctx.strokeStyle = '#555560';
-  ctx.lineWidth = 3;
-  for (const c of g.city.centers) {
-    const [x1] = toMap(c, 0);
-    const [, y1] = toMap(0, c);
-    ctx.beginPath(); ctx.moveTo(x1, 0); ctx.lineTo(x1, S); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, y1); ctx.lineTo(S, y1); ctx.stroke();
+export function drawHUD(G, ctx) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const p = G.player;
+  // Health bar, top left.
+  ctx.fillStyle = 'rgba(10,10,14,0.62)';
+  roundRect(ctx, 14, 14, 210, 54, 8);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 15px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('MARA VOSS', 26, 34);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(26, 42, 150, 12);
+  ctx.fillStyle = p.health > 30 ? '#3fae5a' : '#d84040';
+  ctx.fillRect(26, 42, 150 * (p.health / CFG.PLAYER_HP), 12);
+  ctx.fillStyle = '#ffd76a';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillText('$' + p.cash, 182, 55);
+  // District name under the health bar.
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '13px sans-serif';
+  ctx.fillText(districtAt(p.x, p.y), 26, 86);
+
+  // Wanted stars, top right.
+  ctx.fillStyle = 'rgba(10,10,14,0.62)';
+  roundRect(ctx, W - 178, 14, 164, 40, 8);
+  ctx.fill();
+  for (let i = 0; i < CFG.WANTED_MAX; i++) {
+    ctx.fillStyle = i < G.wanted ? '#ffd21f' : 'rgba(255,255,255,0.25)';
+    drawStar(ctx, W - 160 + i * 30, 34, 11);
   }
-  // Mission waypoint.
-  if (g.missions.target) {
-    const [mx, my] = toMap(g.missions.target.x, g.missions.target.z);
-    ctx.fillStyle = '#ffd23e';
-    ctx.beginPath(); ctx.arc(mx, my, 6, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#000000';
+
+  // Mission tracker, top centre.
+  const m = MISSIONS[G.missionIdx];
+  ctx.fillStyle = 'rgba(10,10,14,0.62)';
+  roundRect(ctx, W / 2 - 230, 14, 460, 52, 8);
+  ctx.fill();
+  ctx.fillStyle = '#ffd76a';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(m ? 'JOB ' + m.id + '/5 — ' + m.title : 'STORY COMPLETE', W / 2, 34);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '13px sans-serif';
+  const text = missionText(G);
+  ctx.fillText(text.length > 58 ? text.slice(0, 58) + '…' : text, W / 2, 54);
+
+  // Heist hold progress.
+  if (m && m.type === 'heist' && G.missionStage === 0) {
+    ctx.fillStyle = '#222';
+    ctx.fillRect(W / 2 - 110, 72, 220, 8);
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillRect(W / 2 - 110, 72, 220 * Math.min(1, G.missionT / m.holdTime), 8);
+  }
+
+  // Busted warning while the police close in.
+  if (G.police.bustedT > 0.2 && G.state === 'play') {
+    ctx.fillStyle = 'rgba(216,64,64,0.85)';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('THEY ARE GRABBING YOU — RUN!', W / 2, 130);
+  }
+
+  // Message banner.
+  if (G.messageT > 0) {
+    ctx.globalAlpha = Math.min(1, G.messageT);
+    ctx.fillStyle = 'rgba(10,10,14,0.72)';
+    const tw = ctx.measureText(G.message).width + 36;
+    roundRect(ctx, W / 2 - tw / 2, H - 118, tw, 34, 8);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '15px sans-serif';
+    ctx.fillText(G.message, W / 2, H - 96);
+    ctx.globalAlpha = 1;
+  }
+
+  // Controls hint, bottom right.
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('WASD move/drive · E enter car · Click shoot · F punch · P pause · M mute', W - 16, H - 16);
+
+  // "Press E" prompt when a car is in reach.
+  if (G.nearCar && p.onFoot) {
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Press E to take the car', W / 2, H - 150);
+  }
+
+  drawMinimap(G, ctx);
+}
+
+function drawStar(ctx, cx, cy, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rad = i % 2 === 0 ? r : r * 0.45;
+    const x = cx + Math.cos(a) * rad;
+    const y = cy + Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawMinimap(G, ctx) {
+  const size = 168;
+  const x0 = 16;
+  const y0 = ctx.canvas.height - size - 16;
+  const sx = size / CFG.WORLD_W;
+  const sy = size / CFG.WORLD_H;
+  ctx.fillStyle = 'rgba(10,10,14,0.7)';
+  roundRect(ctx, x0 - 5, y0 - 5, size + 10, size + 10, 8);
+  ctx.fill();
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, y0, size, size);
+  ctx.clip();
+  ctx.fillStyle = '#5d8a4a';
+  ctx.fillRect(x0, y0, size, size);
+  // Beach and water.
+  ctx.fillStyle = '#e8d39a';
+  ctx.fillRect(x0 + CFG.BEACH_X * sx, y0, size - CFG.BEACH_X * sx, size);
+  ctx.fillStyle = '#2e7fa8';
+  ctx.fillRect(x0 + CFG.WATER_X * sx, y0, size - CFG.WATER_X * sx, size);
+  // Roads.
+  ctx.strokeStyle = '#3d3d42';
+  ctx.lineWidth = 3;
+  for (const ry of G.world.roadsH) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0 + ry * sy);
+    ctx.lineTo(x0 + size, y0 + ry * sy);
+    ctx.stroke();
+  }
+  for (const rx of G.world.roadsV) {
+    ctx.beginPath();
+    ctx.moveTo(x0 + rx * sx, y0);
+    ctx.lineTo(x0 + rx * sx, y0 + size);
+    ctx.stroke();
+  }
+  // Mission marker.
+  const mt = G.missionMarker;
+  if (mt) {
+    ctx.fillStyle = '#ffd21f';
+    ctx.beginPath();
+    ctx.arc(x0 + mt.x * sx, y0 + mt.y * sy, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.stroke();
   }
-  // Police dots.
-  ctx.fillStyle = '#3a6aff';
-  for (const car of g.policeCars) {
-    const [px, py] = toMap(car.x, car.z);
-    ctx.beginPath(); ctx.arc(px, py, 3.5, 0, Math.PI * 2); ctx.fill();
+  // Police.
+  ctx.fillStyle = '#4a90ff';
+  for (const car of G.police.cars) {
+    ctx.fillRect(x0 + car.x * sx - 2, y0 + car.y * sy - 2, 4, 4);
   }
-  // Player arrow.
-  const [px, py] = toMap(g.player.x, g.player.z);
-  const yaw = g.player.inCar && g.player.car ? g.player.car.yaw : g.player.yaw;
-  ctx.save();
-  ctx.translate(px, py);
-  ctx.rotate(yaw);
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1.5;
+  // Player.
+  ctx.fillStyle = '#3fae5a';
+  ctx.beginPath();
+  ctx.arc(x0 + G.player.x * sx, y0 + G.player.y * sy, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
   ctx.stroke();
   ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('SOLMAR BAY', x0, y0 - 8);
+}
+
+export function drawTitle(G, ctx) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#ff9a3c');
+  grad.addColorStop(0.55, '#e85a7a');
+  grad.addColorStop(1, '#3a2a6a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.14)';
+  ctx.fillRect(0, H * 0.62, W, 4);
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 84px sans-serif';
+  ctx.fillText('SOLMAR BAY', W / 2, H * 0.34);
+  ctx.fillStyle = '#ffd76a';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText('A SUN-SOAKED OPEN-WORLD CRIME STORY', W / 2, H * 0.34 + 42);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '17px sans-serif';
+  ctx.fillText('Mara Voss came home broke and in debt. The bay owes her a living —', W / 2, H * 0.52);
+  ctx.fillText('take it back, one job at a time. Five jobs. One way out.', W / 2, H * 0.52 + 26);
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('Press ENTER to start  ·  L to continue a saved game', W / 2, H * 0.68);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.font = '15px sans-serif';
+  ctx.fillText('WASD move / drive   ·   E enter or steal a car   ·   Mouse aim, Click shoot   ·   F punch', W / 2, H * 0.68 + 32);
+  ctx.fillText('P pause   ·   M mute   ·   Progress saves after every job', W / 2, H * 0.68 + 58);
+  if (G.hasSave) {
+    ctx.fillStyle = '#ffd76a';
+    ctx.font = '15px sans-serif';
+    ctx.fillText('A saved game was found — press L to pick up where you left off.', W / 2, H * 0.68 + 92);
+  }
+}
+
+export function drawOverlay(G, ctx, title, lines, accent) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  ctx.fillStyle = 'rgba(8,8,12,0.72)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = accent || '#ffffff';
+  ctx.font = 'bold 64px sans-serif';
+  ctx.fillText(title, W / 2, H * 0.38);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '18px sans-serif';
+  lines.forEach((line, i) => {
+    ctx.fillText(line, W / 2, H * 0.38 + 44 + i * 30);
+  });
+  ctx.fillStyle = '#ffd76a';
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillText('Press ENTER to play again  ·  Press T for the title screen', W / 2, H * 0.38 + 44 + lines.length * 30 + 30);
 }

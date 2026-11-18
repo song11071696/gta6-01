@@ -1,119 +1,139 @@
-// Combat: the player's pistol (raycast shot from the camera with a tracer and
-// muzzle flash), the F punch (short-range, knocks pedestrians down), health and
-// armor pickups, and ammo. Shooting scares pedestrians and raises wanted.
-import * as THREE from '../vendor/three.module.min.js';
-import { PLAYER } from './config.js';
+// Solmar Bay — combat. A pistol aimed with the mouse, fists up close, bullets
+// that fly, hit and raise the heat, and the mess they leave behind.
+import { CFG } from './config.js';
+import { addWanted } from './police.js';
+import { nearestPed } from './peds.js';
 
-export function createCombat(g) {
-  const tracerGeo = new THREE.BufferGeometry();
-  const positions = new Float32Array(6);
-  tracerGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  const tracer = new THREE.Line(tracerGeo, new THREE.LineBasicMaterial({ color: 0xffe98a }));
-  tracer.visible = false;
-  tracer.frustumCulled = false;
-  g.scene.add(tracer);
-  const flash = new THREE.Mesh(
-    new THREE.SphereGeometry(0.35, 8, 6),
-    new THREE.MeshBasicMaterial({ color: 0xffe98a }),
-  );
-  flash.visible = false;
-  g.scene.add(flash);
-  return { tracer, flash, tracerTimer: 0, ammo: 60, maxAmmo: 120 };
+export function tryShoot(G) {
+  const p = G.player;
+  if (!p.onFoot || !p.alive || p.fireTimer > 0) return;
+  if (!G.input.mouseDown) return;
+  p.fireTimer = CFG.FIRE_DELAY;
+  const a = Math.atan2(G.input.worldY - p.y, G.input.worldX - p.x);
+  p.angle = a;
+  G.bullets.push({
+    x: p.x + Math.cos(a) * 20,
+    y: p.y + Math.sin(a) * 20,
+    vx: Math.cos(a) * CFG.BULLET_SPEED,
+    vy: Math.sin(a) * CFG.BULLET_SPEED,
+    life: CFG.BULLET_RANGE / CFG.BULLET_SPEED,
+  });
+  G.audio && G.playGunshot && G.playGunshot();
+  G.alarmT = 1.2;
+  spawnPuff(G, p.x + Math.cos(a) * 26, p.y + Math.sin(a) * 26, '#ffd76a', 4);
 }
 
-function shootAt(g, origin, dir) {
-  const c = g.combat;
-  if (c.ammo <= 0) { g.toast('Out of ammo — find a gun crate on the street.'); return; }
-  c.ammo -= 1;
-  g.audio.gunshot();
-  g.shake = 0.12;
-  const ray = new THREE.Raycaster(origin, dir, 0.1, 120);
-  const targets = [];
-  for (const ped of g.peds) if (!ped.down) targets.push(ped.parts.mesh);
-  for (const cop of g.cops) targets.push(cop.mesh);
-  for (const car of g.cars) targets.push(car.parts.mesh);
-  const hits = ray.intersectObjects(targets, true);
-  let end = origin.clone().add(dir.clone().multiplyScalar(120));
-  if (hits.length > 0) {
-    end = hits[0].point;
-    const hitObj = hits[0].object;
-    // Find which pedestrian or cop was hit and knock them down / hurt the player car.
-    for (const ped of g.peds) {
-      if (!ped.down && (ped.parts.mesh === hitObj || ped.parts.mesh.children.includes(hitObj) || hitObj.parent === ped.parts.mesh)) {
-        ped.down = true; ped.downTimer = 8; ped.parts.mesh.visible = false;
-        g.addWanted(2, 'shooting');
+export function tryMelee(G) {
+  const p = G.player;
+  if (!p.onFoot || !p.alive) return;
+  const ped = nearestPed(G, CFG.MELEE_RANGE);
+  if (!ped) return;
+  ped.hp -= CFG.MELEE_DAMAGE;
+  ped.state = 'flee';
+  const a = Math.atan2(ped.y - p.y, ped.x - p.x);
+  ped.x += Math.cos(a) * 26;
+  ped.y += Math.sin(a) * 26;
+  G.audio && G.playPunch && G.playPunch();
+  if (ped.hp <= 0) {
+    ped.state = 'dead';
+    ped.deadT = 0;
+    G.stats.kills += 1;
+    addWanted(G, 1);
+  } else {
+    addWanted(G, 1);
+  }
+  G.alarmT = 1.2;
+}
+
+export function updateBullets(G, dt) {
+  for (const b of G.bullets) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.life -= dt;
+    // A bullet dies on a wall.
+    if (b.life > 0) {
+      for (const bd of G.world.buildings) {
+        if (b.x > bd.x && b.x < bd.x + bd.w && b.y > bd.y && b.y < bd.y + bd.h) {
+          b.life = 0;
+          spawnPuff(G, b.x, b.y, '#c8c8c8', 5);
+          break;
+        }
+      }
+    }
+    if (b.life <= 0) continue;
+    // Pedestrians on the street.
+    for (const ped of G.peds) {
+      if (ped.state === 'dead') continue;
+      if (Math.hypot(ped.x - b.x, ped.y - b.y) < 14) {
+        ped.hp -= 34;
+        b.life = 0;
+        spawnPuff(G, b.x, b.y, '#c04040', 7);
+        if (ped.hp <= 0) {
+          ped.state = 'dead';
+          ped.deadT = 0;
+          G.stats.kills += 1;
+          addWanted(G, 1);
+        } else {
+          ped.state = 'flee';
+          addWanted(G, 1);
+        }
         break;
       }
     }
-    for (const cop of g.cops) {
-      if (cop.mesh === hitObj || cop.mesh.children.includes(hitObj)) {
-        g.scene.remove(cop.mesh);
-        g.cops.splice(g.cops.indexOf(cop), 1);
-        g.addWanted(3, 'shot a cop');
+    if (b.life <= 0) continue;
+    // Police officers on foot.
+    for (const off of G.police.peds) {
+      if (Math.hypot(off.x - b.x, off.y - b.y) < 14) {
+        b.life = 0;
+        spawnPuff(G, b.x, b.y, '#c04040', 7);
+        addWanted(G, 1);
+        off.x += b.vx * 0.01;
+        off.y += b.vy * 0.01;
+        break;
+      }
+    }
+    if (b.life <= 0) continue;
+    // Cars: dents, and a wrecked car stops.
+    for (const car of G.cars) {
+      if (car.driver === 'player') continue;
+      if (Math.hypot(car.x - b.x, car.y - b.y) < 24) {
+        car.hp -= 18;
+        b.life = 0;
+        spawnPuff(G, b.x, b.y, '#888888', 6);
+        if (car.hp <= 0 && car.driver === 'traffic') {
+          car.driver = 'none';
+          car.speed = 0;
+        }
         break;
       }
     }
   }
-  const pos = c.tracer.geometry.attributes.position;
-  pos.setXYZ(0, origin.x, origin.y, origin.z);
-  pos.setXYZ(1, end.x, end.y, end.z);
-  pos.needsUpdate = true;
-  c.tracer.visible = true;
-  c.tracerTimer = 0.08;
-  c.flash.position.copy(origin).add(dir.clone().multiplyScalar(1.2));
-  c.flash.visible = true;
-  g.scarePeds(g.player.x, g.player.z, 40);
-  g.addWanted(1, 'gunfire');
+  G.bullets = G.bullets.filter((b) => b.life > 0);
 }
 
-export function tryShoot(g) {
-  const p = g.player;
-  const origin = new THREE.Vector3(p.x, 1.6, p.z);
-  if (p.inCar && p.car) {
-    origin.set(p.car.x, 1.4, p.car.z);
-  }
-  const dir = new THREE.Vector3();
-  g.camera.getWorldDirection(dir);
-  shootAt(g, origin, dir);
-}
-
-export function tryPunch(g) {
-  const p = g.player;
-  if (p.inCar) return;
-  g.audio.punch();
-  const fx = Math.sin(p.yaw);
-  const fz = Math.cos(p.yaw);
-  for (const ped of g.peds) {
-    if (ped.down) continue;
-    const dx = ped.x - p.x;
-    const dz = ped.z - p.z;
-    const d = Math.hypot(dx, dz);
-    if (d < PLAYER.punchRange && (dx * fx + dz * fz) / (d || 1) > 0.2) {
-      ped.down = true;
-      ped.downTimer = 5;
-      ped.parts.mesh.visible = false;
-      g.addWanted(1, 'assault');
-      g.toast('You knocked them out!');
-      g.scarePeds(p.x, p.z, 25);
-      return;
-    }
-  }
-  for (const cop of g.cops) {
-    const d = Math.hypot(cop.x - p.x, cop.z - p.z);
-    if (d < PLAYER.punchRange) {
-      g.scene.remove(cop.mesh);
-      g.cops.splice(g.cops.indexOf(cop), 1);
-      g.addWanted(2, 'fought a cop');
-      g.toast('Cop down!');
-      return;
-    }
+export function spawnPuff(G, x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = G.rng.range(0, Math.PI * 2);
+    const s = G.rng.range(30, 130);
+    G.parts.push({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      life: G.rng.range(0.25, 0.6),
+      max: 0.6,
+      color,
+      size: G.rng.range(2, 5),
+    });
   }
 }
 
-export function stepCombat(g, dt) {
-  const c = g.combat;
-  if (c.tracerTimer > 0) {
-    c.tracerTimer -= dt;
-    if (c.tracerTimer <= 0) { c.tracer.visible = false; c.flash.visible = false; }
+export function updateParticles(G, dt) {
+  for (const pt of G.parts) {
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+    pt.vx *= 0.92;
+    pt.vy *= 0.92;
+    pt.life -= dt;
   }
+  G.parts = G.parts.filter((pt) => pt.life > 0);
 }

@@ -1,73 +1,78 @@
-// Keyboard and mouse input. Held keys are read every step; one-shot presses
-// (enter car, punch, shoot, pause, mute, mission) are queued as bit flags and
-// taken once by the loop, so a press between frames is never lost or double-counted.
-export const ACTION_ENTER = 1;
-export const ACTION_PUNCH = 2;
-export const ACTION_SHOOT = 4;
-export const ACTION_PAUSE = 8;
-export const ACTION_MUTE = 16;
-export const ACTION_MISSION = 32;
-export const ACTION_CONFIRM = 64;
-
-const PAUSE_KEYS = new Set(['KeyP', 'Escape']);
-const CONFIRM_KEYS = new Set(['Space', 'Enter']);
-
+// Solmar Bay — keyboard and mouse input. Tracks held keys, edge-triggered
+// presses, and the mouse position in both screen and world coordinates.
 export function createInput(canvas) {
-  const keys = new Set();
-  let actions = 0;
-  let mouseDX = 0;
-  let mouseDY = 0;
-  let dragging = false;
-  let lastX = 0;
-  let lastY = 0;
-
-  window.addEventListener('keydown', (event) => {
-    if (event.code === 'KeyE' && !event.repeat) actions |= ACTION_ENTER;
-    else if (event.code === 'KeyF' && !event.repeat) actions |= ACTION_PUNCH;
-    else if (event.code === 'KeyM' && !event.repeat) actions |= ACTION_MUTE;
-    else if (event.code === 'KeyQ' && !event.repeat) actions |= ACTION_MISSION;
-    else if (PAUSE_KEYS.has(event.code) && !event.repeat) actions |= ACTION_PAUSE;
-    else if (CONFIRM_KEYS.has(event.code) && !event.repeat) actions |= ACTION_CONFIRM;
-    keys.add(event.code);
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => keys.delete(event.code));
-  window.addEventListener('blur', () => keys.clear());
-
-  canvas.addEventListener('pointerdown', (event) => {
-    dragging = true;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    if (event.button === 0) actions |= ACTION_SHOOT;
-    canvas.setPointerCapture(event.pointerId);
-  });
-  canvas.addEventListener('pointermove', (event) => {
-    if (!dragging) return;
-    mouseDX += event.clientX - lastX;
-    mouseDY += event.clientY - lastY;
-    lastX = event.clientX;
-    lastY = event.clientY;
-  });
-  const endDrag = () => { dragging = false; };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
-
-  return {
-    held(code) { return keys.has(code); },
-    forward() { return (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0); },
-    strafe() { return (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0); },
-    running() { return keys.has('ShiftLeft') || keys.has('ShiftRight'); },
-    handbrake() { return keys.has('Space'); },
-    takeMouseDelta() {
-      const d = { x: mouseDX, y: mouseDY };
-      mouseDX = 0;
-      mouseDY = 0;
-      return d;
-    },
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
+  const input = {
+    keys: {},
+    pressed: {},
+    mouseX: 0,
+    mouseY: 0,
+    mouseDown: false,
+    mouseClicked: false,
+    // World-space mouse position, filled in every frame by main.js.
+    worldX: 0,
+    worldY: 0,
   };
+
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    input.keys[e.code] = true;
+    input.pressed[e.code] = true;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    input.keys[e.code] = false;
+  });
+  window.addEventListener('blur', () => {
+    input.keys = {};
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    input.mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    input.mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  });
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 0) {
+      input.mouseDown = true;
+      input.mouseClicked = true;
+    }
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) input.mouseDown = false;
+  });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  return input;
+}
+
+// True while the key is held down.
+export function keyDown(input, code) {
+  return !!input.keys[code];
+}
+
+// True only on the frame the key went down. Cleared at the end of each frame.
+export function keyPressed(input, code) {
+  return !!input.pressed[code];
+}
+
+export function clearPressed(input) {
+  input.pressed = {};
+  input.mouseClicked = false;
+}
+
+// Movement vector from WASD / arrows, normalised.
+export function moveVector(input) {
+  let x = 0;
+  let y = 0;
+  if (keyDown(input, 'KeyA') || keyDown(input, 'ArrowLeft')) x -= 1;
+  if (keyDown(input, 'KeyD') || keyDown(input, 'ArrowRight')) x += 1;
+  if (keyDown(input, 'KeyW') || keyDown(input, 'ArrowUp')) y -= 1;
+  if (keyDown(input, 'KeyS') || keyDown(input, 'ArrowDown')) y += 1;
+  if (x !== 0 && y !== 0) {
+    const inv = 1 / Math.SQRT2;
+    x *= inv;
+    y *= inv;
+  }
+  return { x, y };
 }
